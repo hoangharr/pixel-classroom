@@ -6,7 +6,7 @@ import AttendanceList from './components/AttendanceList'
 import { useEffect, useState, useRef } from 'react'
 import { auth, rtdb } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { ref, onValue, set, remove, get } from 'firebase/database'
+import { ref, onValue, set, get, remove } from 'firebase/database'
 import { classroomConfig } from './classroomConfig'
 import { mapData } from './mapData'
 
@@ -22,6 +22,7 @@ function App() {
   const [attendanceData, setAttendanceData] = useState({})
   const [unlockedLessons, setUnlockedLessons] = useState({})
   const [teacherNotification, setTeacherNotification] = useState(null)
+  const [mySeatId, setMySeatId] = useState(null)
   const meetWindowRef = useRef(null)
 
   const email = user?.email?.toLowerCase() || ''
@@ -36,14 +37,19 @@ function App() {
     })
     onValue(ref(rtdb, 'world/attendance'), (snap) => setAttendanceData(snap.val() || {}))
     onValue(ref(rtdb, 'world/config/unlockedLessons'), (snap) => setUnlockedLessons(snap.val() || {}))
+    onValue(ref(rtdb, 'world/seats'), (snap) => {
+      const data = snap.val() || {}
+      const found = Object.keys(data).find(id => data[id].uid === user.uid)
+      setMySeatId(found || null)
+    })
     onValue(ref(rtdb, 'world/events/teacherArrival'), (snap) => {
       const data = snap.val()
-      if (data && Date.now() - data.ts < 5000) {
+      if (data && !isTeacher && Date.now() - data.ts < 5000) {
         setTeacherNotification(`Thầy giáo ${data.email.split('@')[0]} đã vào lớp!`)
         setTimeout(() => setTeacherNotification(null), 5000)
       }
     })
-  }, [user])
+  }, [user, isTeacher])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u))
@@ -56,30 +62,38 @@ function App() {
     if (zoneId === 'table_reading') setShowDictionary(true)
     else if (zoneId === 'bookshelf_1') setShowGrammar(true)
     else if (zoneId === 'board_1') setShowAttendance(true)
-    else if (zoneId.startsWith('seat_')) handleSitDown(zoneId)
+    else if (zoneId.startsWith('seat_')) { if (!isTeacher) handleSitDown(zoneId) }
     else if (zoneId === 'desk_teacher' && isTeacher) handleTeacherArrival()
   }
 
-  const handleSitDown = (seatId) => {
-    set(ref(rtdb, `world/seats/${seatId}`), { uid: user.uid, email: user.email, ts: Date.now() })
+  const handleSitDown = async (seatId) => {
+    if (mySeatId) {
+      if (mySeatId === seatId) alert("Bạn đang ngồi đây rồi!")
+      else alert("Bạn đã ngồi ở một ghế khác!")
+      return
+    }
+    const seatRef = ref(rtdb, `world/seats/${seatId}`)
+    const snap = await get(seatRef)
+    if (snap.exists()) { alert("Ghế đã có người ngồi!"); return }
+    set(seatRef, { uid: user.uid, email: user.email, ts: Date.now() })
     set(ref(rtdb, `world/attendance/${user.uid}`), { email: user.email, ts: Date.now() })
   }
 
-  const handleTeacherArrival = () => set(ref(rtdb, 'world/events/teacherArrival'), { email: user.email, ts: Date.now() })
+  const handleTeacherArrival = () => {
+    set(ref(rtdb, 'world/events/teacherArrival'), { email: user.email, ts: Date.now() })
+    alert("Đã thông báo tới học sinh!")
+  }
 
   const handleEndClass = async () => {
     if (!isTeacher) return
-    if (!window.confirm("Kết thúc tiết học? Dữ liệu sẽ được lưu và xóa khỏi hệ thống.")) return
+    if (!window.confirm("Kết thúc tiết học và xuất báo cáo?")) return
     const attendance = (await get(ref(rtdb, 'world/attendance'))).val() || {}
     const lessons = (await get(ref(rtdb, 'world/config/unlockedLessons'))).val() || {}
-    const report = { className: "Phòng học 1", teacher: user.email, endTime: new Date().toLocaleString(), studentCount: Object.keys(attendance).length, attendanceList: attendance, lessonsLearned: lessons }
+    const report = { teacher: user.email, endTime: new Date().toLocaleString(), studentCount: Object.keys(attendance).length, attendanceList: attendance, lessonsLearned: lessons }
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(report, null, 2))
-    const downloadAnchorNode = document.createElement('a')
-    downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", `Bao_Cao_${new Date().toISOString().split('T')[0]}.json`)
-    document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove()
+    const dl = document.createElement('a'); dl.setAttribute("href", dataStr); dl.setAttribute("download", `BaoCao.json`); dl.click(); dl.remove()
     await remove(ref(rtdb, 'world/attendance')); await remove(ref(rtdb, 'world/seats')); await remove(ref(rtdb, 'world/events'))
     await set(ref(rtdb, 'world/config/meetStatus'), false); await remove(ref(rtdb, 'world/config/unlockedLessons'))
-    alert("Đã dọn dẹp phòng học!")
   }
 
   const toggleMeetStatus = () => {
@@ -92,14 +106,33 @@ function App() {
     const roomName = `PixelClassroom_Lop1_2026` 
     const displayName = user?.displayName || user?.email?.split('@')[0] || 'User'
     const meetUrl = `https://meet.jit.si/${roomName}#config.prejoinPageEnabled=false&config.pips.enabled=true&userInfo.displayName="${displayName}"`
-    const width = 450, height = 550, left = window.screen.width - width - 20, top = 100
-    meetWindowRef.current = window.open(meetUrl, 'JitsiMeetPopup', `width=${width},height=${height},left=${left},top=${top},menubar=no,status=no,toolbar=no,location=no`)
+    meetWindowRef.current = window.open(meetUrl, 'JitsiMeetPopup', `width=450,height=550,left=${window.screen.width - 470},top=100,menubar=no,status=no,toolbar=no,location=no`)
     setIsJoinedMeet(true)
     const checkWindow = setInterval(() => { if (meetWindowRef.current && meetWindowRef.current.closed) { setIsJoinedMeet(false); meetWindowRef.current = null; clearInterval(checkWindow) } }, 1000)
   }
 
   const handleLeaveMeet = () => { if (meetWindowRef.current) { meetWindowRef.current.close(); meetWindowRef.current = null }; setIsJoinedMeet(false) }
   const bringMeetToFront = () => { if (meetWindowRef.current && !meetWindowRef.current.closed) meetWindowRef.current.focus() }
+
+  // --- HÀM LOGOUT MỚI: DỌN DẸP TRƯỚC KHI THOÁT ---
+  const handleLogout = async () => {
+    if (!user) return
+    try {
+      // 1. Giải phóng ghế đang ngồi
+      if (mySeatId) {
+        await remove(ref(rtdb, `world/seats/${mySeatId}`))
+      }
+      // 2. Xóa dữ liệu nhân vật
+      await remove(ref(rtdb, `world/players/${user.uid}`))
+      // 3. Đóng cửa sổ Meet nếu còn mở
+      handleLeaveMeet()
+      // 4. Thực hiện đăng xuất chính thức
+      await signOut(auth)
+    } catch (err) {
+      console.error("Lỗi khi đăng xuất:", err)
+      await signOut(auth) // Vẫn cho thoát nếu có lỗi
+    }
+  }
 
   const getZoneDisplay = (zoneId) => {
     if (!zoneId) return 'Hành lang'
@@ -116,7 +149,7 @@ function App() {
     if (activeZone === 'table_reading') return 'tra Từ điển'
     if (activeZone === 'bookshelf_1') return 'xem Ngữ pháp'
     if (activeZone === 'board_1') return 'xem Điểm danh'
-    if (activeZone.startsWith('seat_')) return 'ngồi xuống & Điểm danh'
+    if (activeZone.startsWith('seat_')) return isTeacher ? null : (mySeatId === activeZone ? 'vị trí của bạn' : 'ngồi xuống & Điểm danh')
     if (activeZone === 'desk_teacher' && isTeacher) return 'thông báo vào lớp'
     return 'tương tác'
   }
@@ -166,89 +199,29 @@ function App() {
         </div>
       )}
 
-      {/* --- SIDEBAR CONTAINER --- */}
-      <div 
-        style={{
-          position: 'fixed', left: 0, top: 0, height: '100%', 
-          width: '365px', // 320 (Sidebar) + 45 (Handle)
-          transform: showSidebar ? 'translateX(0)' : 'translateX(-320px)',
-          transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
-          zIndex: 10000, display: 'flex'
-        }}
-      >
-        {/* Sidebar Content */}
-        <div style={{
-          width: '320px', height: '100%', backgroundColor: 'rgba(20, 20, 20, 0.95)',
-          boxShadow: '10px 0 50px rgba(0,0,0,0.5)', padding: '30px',
-          display: 'flex', flexDirection: 'column', color: '#fff',
-          backdropFilter: 'blur(15px)', borderRight: '1px solid rgba(255,255,255,0.1)',
-          boxSizing: 'border-box'
-        }}>
-          <h2 style={{ margin: '0 0 30px 0', fontSize: '24px', color: '#fff', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ filter: 'drop-shadow(0 0 5px #fff)' }}>🏫</span> PIXEL CLASS
-          </h2>
-          
+      <div style={{ position: 'fixed', left: 0, top: 0, height: '100%', width: '365px', transform: showSidebar ? 'translateX(0)' : 'translateX(-320px)', transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)', zIndex: 10000, display: 'flex' }}>
+        <div style={{ width: '320px', height: '100%', backgroundColor: 'rgba(20, 20, 20, 0.95)', boxShadow: '10px 0 50px rgba(0,0,0,0.5)', padding: '30px', display: 'flex', flexDirection: 'column', color: '#fff', backdropFilter: 'blur(15px)', borderRight: '1px solid rgba(255,255,255,0.1)', boxSizing: 'border-box' }}>
+          <h2 style={{ margin: '0 0 30px 0', fontSize: '24px', color: '#fff', display: 'flex', alignItems: 'center', gap: '12px' }}><span>🏫</span> PIXEL CLASS</h2>
           <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontSize: '11px', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '1px' }}>Tài khoản</div>
-            <div style={{ fontWeight: 'bold', fontSize: '15px', wordBreak: 'break-all', color: '#fff' }}>{user.email}</div>
-            <div style={{ marginTop: '10px', display: 'inline-block', padding: '4px 12px', background: isTeacher ? '#ff4d4f' : '#1890ff', color: '#fff', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-              {isTeacher ? 'GIÁO VIÊN' : 'HỌC SINH'}
-            </div>
+            <div style={{ fontSize: '11px', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '10px' }}>Tài khoản</div>
+            <div style={{ fontWeight: 'bold', fontSize: '15px', wordBreak: 'break-all' }}>{user.email}</div>
+            <div style={{ marginTop: '10px', display: 'inline-block', padding: '4px 12px', background: isTeacher ? '#ff4d4f' : '#1890ff', color: '#fff', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>{isTeacher ? 'GIÁO VIÊN' : 'HỌC SINH'}</div>
           </div>
-
           <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontSize: '11px', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '5px', letterSpacing: '1px' }}>Vị trí hiện tại</div>
-            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbc02d' }}>
-              {getZoneDisplay(activeZone)}
-            </div>
+            <div style={{ fontSize: '11px', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '5px' }}>Vị trí hiện tại</div>
+            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbc02d' }}>{getZoneDisplay(activeZone)}</div>
           </div>
-
-          <div style={{ flex: 1 }}>
-            <div style={{ padding: '20px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '16px', fontSize: '13px', color: '#ccc', lineHeight: '1.6' }}>
-              <strong style={{ color: '#fff', display: 'block', marginBottom: '10px' }}>⌨️ Điều khiển:</strong>
-              • <b>WASD, mũi tên</b> để di chuyển<br />
-              • <b>E</b> để tương tác<br />
-              • <b>ESC</b> để thoát 
-            </div>
-          </div>
-
           <button 
-            onClick={() => signOut(auth)} 
-            style={{ 
-              width: '100%', padding: '15px', background: 'transparent', color: '#ff4d4f', 
-              border: '2px solid #ff4d4f', borderRadius: '12px', cursor: 'pointer', 
-              fontWeight: 'bold', fontSize: '14px', transition: 'all 0.3s ease' 
-            }}
-            onMouseOver={(e) => { e.target.style.background = '#ff4d4f'; e.target.style.color = '#fff' }}
+            onClick={handleLogout} 
+            style={{ width: '100%', padding: '15px', background: 'transparent', color: '#ff4d4f', border: '2px solid #ff4d4f', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.3s ease' }} 
+            onMouseOver={(e) => { e.target.style.background = '#ff4d4f'; e.target.style.color = '#fff' }} 
             onMouseOut={(e) => { e.target.style.background = 'transparent'; e.target.style.color = '#ff4d4f' }}
           >
             Đăng xuất
           </button>
         </div>
-
-        {/* HANDLE SEAMLESS & CLICKABLE */}
-        <div 
-          onClick={() => setShowSidebar(!showSidebar)}
-          style={{ 
-            width: '45px', height: '100px', alignSelf: 'center',
-            backgroundColor: 'rgba(20, 20, 20, 0.95)',
-            backdropFilter: 'blur(15px)',
-            borderRadius: '0 25px 25px 0', display: 'flex', alignItems: 'center', 
-            justifyContent: 'center', cursor: 'pointer',
-            boxShadow: '8px 0 20px rgba(0,0,0,0.3)',
-            border: '1px solid rgba(255,255,255,0.1)', borderLeft: 'none',
-            marginLeft: '-1px'
-          }}
-        >
-          {/* CHEVRON SẮC NÉT VẼ BẰNG CSS */}
-          <div style={{ 
-            width: '12px', height: '12px',
-            borderTop: '3px solid #fff',
-            borderRight: '3px solid #fff',
-            transform: showSidebar ? 'rotate(-135deg)' : 'rotate(45deg)',
-            transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
-            marginLeft: showSidebar ? '6px' : '-4px'
-          }} />
+        <div onClick={() => setShowSidebar(!showSidebar)} style={{ width: '45px', height: '100px', alignSelf: 'center', backgroundColor: 'rgba(20, 20, 20, 0.95)', backdropFilter: 'blur(15px)', borderRadius: '0 25px 25px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '8px 0 20px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderLeft: 'none', marginLeft: '-1px' }}>
+          <div style={{ width: '12px', height: '12px', borderTop: '3px solid #fff', borderRight: '3px solid #fff', transform: showSidebar ? 'rotate(-135deg)' : 'rotate(45deg)', transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)', marginLeft: showSidebar ? '6px' : '-4px' }} />
         </div>
       </div>
 

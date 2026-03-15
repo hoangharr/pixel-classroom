@@ -11,7 +11,6 @@ import {
 import { onAuthStateChanged } from 'firebase/auth'
 import { mapData } from '../mapData'
 
-// Helper function outside to avoid re-creation
 const createCharacterGraphic = (PIXI, isMe, name, userRole) => {
   const charContainer = new PIXI.Container()
   const graphics = new PIXI.Graphics()
@@ -79,16 +78,12 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         resizeTo: window,
       })
 
-      if (cancelled) {
-        app.destroy(true, { children: true, texture: true })
-        return
-      }
+      if (cancelled) { app.destroy(true, { children: true, texture: true }); return }
 
       appRef.current = app
       if (containerRef.current) {
         containerRef.current.appendChild(app.canvas)
         app.canvas.tabIndex = 1
-        app.canvas.style.outline = 'none'
         app.canvas.focus()
       }
 
@@ -106,6 +101,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
       world.addChild(ground)
 
       const seatGraphicsMap = new Map()
+      const teacherDeskGraphicRef = { current: null }
 
       mapData.rooms.forEach(room => {
         const roomContainer = new PIXI.Container()
@@ -124,13 +120,10 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         }
 
         const door = room.door
-        const isDoorTop = door.y <= room.y + 5, isDoorBottom = (door.y + door.h) >= (room.y + room.h - 5)
-        const isDoorLeft = door.x <= room.x + 5, isDoorRight = (door.x + door.w) >= (room.x + room.w - 5)
-
-        if (isDoorTop) { addWall(0, 0, door.x - room.x, wallT); addWall(door.x - room.x + door.w, 0, room.w - (door.x - room.x + door.w), wallT) } else { addWall(0, 0, room.w, wallT) }
-        if (isDoorBottom) { addWall(0, room.h - wallT, door.x - room.x, wallT); addWall(door.x - room.x + door.w, room.h - wallT, room.w - (door.x - room.x + door.w), wallT) } else { addWall(0, room.h - wallT, room.w, wallT) }
-        if (isDoorLeft) { addWall(0, 0, wallT, door.y - room.y); addWall(0, door.y - room.y + door.h, wallT, room.h - (door.y - room.y + door.h)) } else { addWall(0, 0, wallT, room.h) }
-        if (isDoorRight) { addWall(room.w - wallT, 0, wallT, door.y - room.y); addWall(room.w - wallT, door.y - room.y + door.h, wallT, room.h - (door.y - room.y + door.h)) } else { addWall(room.w - wallT, 0, wallT, room.h) }
+        if (door.y <= room.y + 5) { addWall(0, 0, door.x - room.x, wallT); addWall(door.x - room.x + door.w, 0, room.w - (door.x - room.x + door.w), wallT) } else { addWall(0, 0, room.w, wallT) }
+        if ((door.y + door.h) >= (room.y + room.h - 5)) { addWall(0, room.h - wallT, door.x - room.x, wallT); addWall(door.x - room.x + door.w, room.h - wallT, room.w - (door.x - room.x + door.w), wallT) } else { addWall(0, room.h - wallT, room.w, wallT) }
+        if (door.x <= room.x + 5) { addWall(0, 0, wallT, door.y - room.y); addWall(0, door.y - room.y + door.h, wallT, room.h - (door.y - room.y + door.h)) } else { addWall(0, 0, wallT, room.h) }
+        if ((door.x + door.w) >= (room.x + room.w - 5)) { addWall(room.w - wallT, 0, wallT, door.y - room.y); addWall(room.w - wallT, door.y - room.y + door.h, wallT, room.h - (door.y - room.y + door.h)) } else { addWall(room.w - wallT, 0, wallT, room.h) }
 
         const doorGraphic = new PIXI.Graphics().rect(door.x - room.x, door.y - room.y, door.w, door.h).fill({ color: 0x5d4037, alpha: 0.8 })
         roomContainer.addChild(doorGraphic)
@@ -138,25 +131,20 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         room.objects.forEach(obj => {
           const g = new PIXI.Graphics()
           if (obj.type === 'seat') {
-            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(obj.color)
-            g.rect(obj.x - room.x, obj.y - room.y - 8, obj.w, 8).fill(0x5d4037)
+            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(obj.color).rect(obj.x - room.x, obj.y - room.y - 8, obj.w, 8).fill(0x5d4037)
             seatGraphicsMap.set(obj.id, g)
+          } else if (obj.id === 'desk_teacher') {
+            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x3e2723).rect(obj.x - room.x, obj.y - room.y - 4, obj.w, obj.h).fill(obj.color)
+            teacherDeskGraphicRef.current = g
           } else if (obj.type === 'board') {
-            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x3e2723)
-            g.rect(obj.x - room.x + 4, obj.y - room.y + 4, obj.w - 8, obj.h - 8).fill(obj.color)
-          } else if (obj.type === 'desk') {
-            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x3e2723)
-            g.rect(obj.x - room.x, obj.y - room.y - 4, obj.w, obj.h).fill(obj.color)
+            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x3e2723).rect(obj.x - room.x + 4, obj.y - room.y + 4, obj.w - 8, obj.h - 8).fill(obj.color)
           } else if (obj.type === 'plant') {
-            g.circle(obj.x - room.x + 16, obj.y - room.y + 16, 12).fill(0x8d6e63)
-            g.circle(obj.x - room.x + 16, obj.y - room.y + 8, 14).fill(0x4caf50)
+            g.circle(obj.x - room.x + 16, obj.y - room.y + 16, 12).fill(0x8d6e63).circle(obj.x - room.x + 16, obj.y - room.y + 8, 14).fill(0x4caf50)
           } else {
             g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(obj.color)
           }
           roomContainer.addChild(g)
-          if (obj.type !== 'rug' && obj.type !== 'seat') {
-            collisionRects.push({ x: obj.x, y: obj.y, w: obj.w, h: obj.h })
-          }
+          if (obj.type !== 'rug' && obj.type !== 'seat') collisionRects.push({ x: obj.x, y: obj.y, w: obj.w, h: obj.h })
           if (obj.label) {
             const text = new PIXI.Text({ text: obj.label, style: { fill: 0xffffff, fontSize: 10, fontWeight: 'bold' } })
             text.anchor.set(0.5); text.x = (obj.x - room.x) + obj.w / 2; text.y = (obj.y - room.y) + obj.h / 2
@@ -165,24 +153,31 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         })
       })
 
-      const seatsRef = dbRef(rtdb, 'world/seats')
-      onValue(seatsRef, (snap) => {
+      // Sync Seat & Teacher Arrival Status
+      onValue(dbRef(rtdb, 'world/seats'), (snap) => {
         const data = snap.val() || {}
         seatGraphicsMap.forEach((g, id) => {
           g.clear()
-          const isOccupied = data[id]
+          const obj = mapData.rooms.flatMap(r => r.objects).find(o => o.id === id)
           const room = mapData.rooms.find(r => r.objects.some(o => o.id === id))
-          const obj = room?.objects.find(o => o.id === id)
-          if (obj && room) {
-            if (isOccupied) {
-              g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x1e88e5)
-              g.circle(obj.x - room.x + obj.w/2, obj.y - room.y + obj.h/2, 10).fill(0xffdbac)
-            } else {
-              g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(obj.color)
-              g.rect(obj.x - room.x, obj.y - room.y - 8, obj.w, 8).fill(0x5d4037)
-            }
+          if (data[id]) {
+            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x1e88e5)
+            g.circle(obj.x - room.x + obj.w/2, obj.y - room.y + obj.h/2, 10).fill(0xffdbac)
+          } else {
+            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(obj.color).rect(obj.x - room.x, obj.y - room.y - 8, obj.w, 8).fill(0x5d4037)
           }
         })
+      })
+
+      onValue(dbRef(rtdb, 'world/events/teacherArrival'), (snap) => {
+        const data = snap.val()
+        if (teacherDeskGraphicRef.current) {
+          const g = teacherDeskGraphicRef.current; g.clear()
+          const obj = mapData.rooms.flatMap(r => r.objects).find(o => o.id === 'desk_teacher')
+          const room = mapData.rooms.find(r => r.id === 'classroom_1')
+          const color = (data && Date.now() - data.ts < 3600000) ? 0x4caf50 : 0x8d6e63 // Đổi sang xanh nếu thầy đã vào lớp (trong 1h qua)
+          g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x3e2723).rect(obj.x - room.x, obj.y - room.y - 4, obj.w, obj.h).fill(color)
+        }
       })
 
       me = createCharacterGraphic(PIXI, true, 'BẠN', roleRef.current)
@@ -203,11 +198,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
 
       const update = (ticker) => {
         if (!me || !world) return
-        for (const s of othersRef.current.values()) {
-          if (s && s.targetX != null && s.targetY != null) {
-            s.x += (s.targetX - s.x) * 0.25; s.y += (s.targetY - s.y) * 0.25
-          }
-        }
+        for (const s of othersRef.current.values()) { if (s && s.targetX != null && s.targetY != null) { s.x += (s.targetX - s.x) * 0.25; s.y += (s.targetY - s.y) * 0.25 } }
         let dx = 0, dy = 0
         if (keys.ArrowUp || keys.KeyW) dy -= 1
         if (keys.ArrowDown || keys.KeyS) dy += 1
@@ -227,14 +218,9 @@ export default function Scene({ role, onZoneChange, onInteract }) {
           me.body.y = Math.sin(Date.now() * 0.01) * 3
           if (dx !== 0) me.body.scale.x = dx < 0 ? -1 : 1
           const currentRoom = mapData.rooms.find(r => playerRef.current.x >= r.x && playerRef.current.x <= r.x + r.w && playerRef.current.y >= r.y && playerRef.current.y <= r.y + r.h)
-          const currentObj = mapData.rooms.flatMap(r => r.objects).find(o => 
-            playerRef.current.x >= o.x - 35 && playerRef.current.x <= o.x + o.w + 35 && 
-            playerRef.current.y >= o.y - 35 && playerRef.current.y <= o.y + o.h + 35
-          )
+          const currentObj = mapData.rooms.flatMap(r => r.objects).find(o => playerRef.current.x >= o.x - 35 && playerRef.current.x <= o.x + o.w + 35 && playerRef.current.y >= o.y - 35 && playerRef.current.y <= o.y + o.h + 35)
           const zoneId = currentObj ? currentObj.id : (currentRoom ? currentRoom.id : null)
-          if (zoneId !== lastZoneRef.current) {
-            lastZoneRef.current = zoneId; if (onZoneChangeRef.current) onZoneChangeRef.current(zoneId)
-          }
+          if (zoneId !== lastZoneRef.current) { lastZoneRef.current = zoneId; if (onZoneChangeRef.current) onZoneChangeRef.current(zoneId) }
         } else { if (me.body) me.body.y = 0 }
         const targetCamX = Math.min(0, Math.max((app.screen.width / 2) - playerRef.current.x, app.screen.width - mapData.worldWidth))
         const targetCamY = Math.min(0, Math.max((app.screen.height / 2) - playerRef.current.y, app.screen.height - mapData.worldHeight))
@@ -261,17 +247,9 @@ export default function Scene({ role, onZoneChange, onInteract }) {
             const s = othersRef.current.get(id)
             if (!s || s.destroyed) { othersRef.current.delete(id); continue }
             if (data[id].x == null || data[id].y == null) continue
-            if (s.targetX == null) {
-              s.x = data[id].x; s.y = data[id].y; s.targetX = data[id].x; s.targetY = data[id].y
-            } else { s.targetX = data[id].x; s.targetY = data[id].y }
+            if (s.targetX == null) { s.x = data[id].x; s.y = data[id].y; s.targetX = data[id].x; s.targetY = data[id].y } else { s.targetX = data[id].x; s.targetY = data[id].y }
           }
-          for (const [id, s] of Array.from(othersRef.current.entries())) {
-            if (!seen.has(id)) {
-              if (world && s) world.removeChild(s)
-              if (s && !s.destroyed) s.destroy()
-              othersRef.current.delete(id)
-            }
-          }
+          for (const [id, s] of Array.from(othersRef.current.entries())) { if (!seen.has(id)) { if (world && s) world.removeChild(s); if (s && !s.destroyed) s.destroy(); othersRef.current.delete(id) } }
         })
       })
 
@@ -279,9 +257,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
       const pushPos = () => {
         const now = Date.now()
         if (uidRef.current && now - lastPush > 250) {
-          set(dbRef(rtdb, `world/players/${uidRef.current}`), {
-            x: playerRef.current.x, y: playerRef.current.y, ts: now, email: auth.currentUser.email
-          })
+          set(dbRef(rtdb, `world/players/${uidRef.current}`), { x: playerRef.current.x, y: playerRef.current.y, ts: now, email: auth.currentUser.email })
           lastPush = now
         }
       }
@@ -297,10 +273,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
     }
 
     const cleanupPromise = init()
-    return () => {
-      cancelled = true; window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey)
-      cleanupPromise.then(cleanup => { if (cleanup) cleanup() })
-    }
+    return () => { cancelled = true; window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); cleanupPromise.then(cleanup => { if (cleanup) cleanup() }) }
   }, [])
 
   return <div ref={containerRef} style={{ width: '100vw', height: '100vh', background: '#000', overflow: 'hidden' }} />
