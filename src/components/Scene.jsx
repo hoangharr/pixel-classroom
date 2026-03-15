@@ -11,10 +11,33 @@ import {
 import { onAuthStateChanged } from 'firebase/auth'
 import { mapData } from '../mapData'
 
+// Helper function outside to avoid re-creation
+const createCharacterGraphic = (PIXI, isMe, name, userRole) => {
+  const charContainer = new PIXI.Container()
+  const graphics = new PIXI.Graphics()
+  graphics.ellipse(0, 8, 10, 4).fill({ color: 0x000000, alpha: 0.2 })
+  const mainColor = isMe ? (userRole === 'teacher' ? 0xe53935 : 0x1e88e5) : 0x9e9e9e
+  graphics.rect(-8, -10, 16, 18).fill(mainColor)
+  graphics.rect(-8, 4, 16, 4).fill(0x3949ab)
+  graphics.rect(-7, -24, 14, 14).fill(0xffdbac)
+  graphics.rect(-8, -26, 16, 6).fill(0x4e342e)
+  graphics.rect(-8, -24, 4, 10).fill(0x4e342e)
+  graphics.rect(4, -24, 4, 10).fill(0x4e342e)
+  graphics.rect(-4, -18, 2, 2).fill(0x000000)
+  graphics.rect(2, -18, 2, 2).fill(0x000000)
+  charContainer.addChild(graphics)
+  charContainer.body = graphics
+  const label = new PIXI.Text({
+    text: name,
+    style: { fill: 0xffffff, fontSize: 11, fontWeight: 'bold', stroke: { color: 0x000000, width: 3 }, lineJoin: 'round' }
+  })
+  label.anchor.set(0.5, 1); label.y = -28; charContainer.addChild(label)
+  return charContainer
+}
+
 export default function Scene({ role, onZoneChange, onInteract }) {
   const containerRef = useRef(null)
   const appRef = useRef(null)
-  // Vị trí bắt đầu an toàn (Hành lang)
   const playerRef = useRef({ x: 550, y: 500 })
   const othersRef = useRef(new Map())
   const uidRef = useRef(null)
@@ -41,29 +64,6 @@ export default function Scene({ role, onZoneChange, onInteract }) {
     let listener
     let collisionRects = []
 
-    const createCharacter = (PIXI, isMe, name, userRole) => {
-      const charContainer = new PIXI.Container()
-      const graphics = new PIXI.Graphics()
-      graphics.ellipse(0, 8, 10, 4).fill({ color: 0x000000, alpha: 0.2 })
-      const mainColor = isMe ? (userRole === 'teacher' ? 0xe53935 : 0x1e88e5) : 0x9e9e9e
-      graphics.rect(-8, -10, 16, 18).fill(mainColor)
-      graphics.rect(-8, 4, 16, 4).fill(0x3949ab)
-      graphics.rect(-7, -24, 14, 14).fill(0xffdbac)
-      graphics.rect(-8, -26, 16, 6).fill(0x4e342e)
-      graphics.rect(-8, -24, 4, 10).fill(0x4e342e)
-      graphics.rect(4, -24, 4, 10).fill(0x4e342e)
-      graphics.rect(-4, -18, 2, 2).fill(0x000000)
-      graphics.rect(2, -18, 2, 2).fill(0x000000)
-      charContainer.addChild(graphics)
-      charContainer.body = graphics
-      const label = new PIXI.Text({
-        text: name,
-        style: { fill: 0xffffff, fontSize: 11, fontWeight: 'bold', stroke: { color: 0x000000, width: 3 }, lineJoin: 'round' }
-      })
-      label.anchor.set(0.5, 1); label.y = -28; charContainer.addChild(label)
-      return charContainer
-    }
-
     const init = async () => {
       const mod = await import('pixi.js')
       PIXI = mod.default ? mod.default : mod
@@ -87,7 +87,6 @@ export default function Scene({ role, onZoneChange, onInteract }) {
       appRef.current = app
       if (containerRef.current) {
         containerRef.current.appendChild(app.canvas)
-        // Focus vào app để nhận phím ngay lập tức
         app.canvas.tabIndex = 1
         app.canvas.style.outline = 'none'
         app.canvas.focus()
@@ -186,7 +185,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         })
       })
 
-      me = createCharacter(PIXI, true, 'BẠN', roleRef.current)
+      me = createCharacterGraphic(PIXI, true, 'BẠN', roleRef.current)
       me.x = playerRef.current.x; me.y = playerRef.current.y
       world.addChild(me)
 
@@ -196,7 +195,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         if (keys.hasOwnProperty(e.code)) { e.preventDefault(); keys[e.code] = e.type === 'keydown' }
         if (e.type === 'keydown' && e.code === 'KeyE') {
           const { x, y } = playerRef.current
-          const zone = mapData.rooms.flatMap(r => r.objects).find(obj => x >= obj.x - 35 && x <= obj.x + obj.w + 35 && y >= obj.y - 35 && y <= obj.y + obj.h + 35)
+          const zone = mapData.rooms.flatMap(r => r.objects).find(obj => x >= obj.x - 35 && x <= obj.x + obj.w + 35 && y >= obj.y - 25 && y <= obj.y + obj.h + 25)
           if (zone && onInteractRef.current) onInteractRef.current(zone.id)
         }
       }
@@ -255,7 +254,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
             if (id === user.uid) continue
             seen.add(id)
             if (!othersRef.current.has(id)) {
-              const s = createCharacter(PIXI, false, data[id].email?.split('@')[0] || 'User', 'student')
+              const s = createCharacterGraphic(PIXI, false, data[id].email?.split('@')[0] || 'User', 'student')
               world.addChild(s)
               othersRef.current.set(id, s)
             }

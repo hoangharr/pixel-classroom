@@ -206,9 +206,9 @@ function App() {
           <div style={{ flex: 1 }}>
             <div style={{ padding: '20px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '16px', fontSize: '13px', color: '#ccc', lineHeight: '1.6' }}>
               <strong style={{ color: '#fff', display: 'block', marginBottom: '10px' }}>⌨️ Điều khiển:</strong>
-              • <b>WASD</b> để di chuyển<br />
+              • <b>WASD, mũi tên</b> để di chuyển<br />
               • <b>E</b> để tương tác<br />
-              • <b>ESC</b> để thoát bảng tin
+              • <b>ESC</b> để thoát 
             </div>
           </div>
 

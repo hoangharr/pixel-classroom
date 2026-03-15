@@ -6,6 +6,12 @@ import {
 } from 'firebase/auth'
 import { auth, rtdb } from '../firebase'
 import { ref, push, serverTimestamp } from 'firebase/database'
+import emailjs from '@emailjs/browser'
+
+// --- CẤU HÌNH EMAILJS (Lấy từ emailjs.com) ---
+const EMAILJS_SERVICE_ID = "service_l8x1p2o"; 
+const EMAILJS_TEMPLATE_ID = "template_h095iwf";
+const EMAILJS_PUBLIC_KEY = "VErvAC0zESe2cIyXi";
 
 export default function Auth() {
   const [view, setView] = useState('login') 
@@ -54,17 +60,36 @@ export default function Auth() {
     e.preventDefault()
     setLoading(true)
     try {
+      // 1. Lưu vào Firebase
       await push(ref(rtdb, 'registrations/trial'), {
         ...trialData,
         createdAt: serverTimestamp()
       })
+
+      // 2. Gửi Email thông báo qua EmailJS
+      await emailjs.send(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        {
+          from_name: trialData.fullName,
+          from_email: trialData.email,
+          age: trialData.age,
+          job: trialData.job,
+          level: trialData.level,
+          purpose: trialData.purpose,
+          to_name: "Thầy giáo Hoàng" // Tên người nhận
+        },
+        EMAILJS_PUBLIC_KEY
+      )
+
       setSuccess(true)
       setTimeout(() => {
         setSuccess(false)
         setView('login')
       }, 3000)
     } catch (err) {
-      setError('Có lỗi xảy ra. Vui lòng thử lại.')
+      console.error(err)
+      setError('Có lỗi xảy ra khi gửi thông tin. Vui lòng thử lại.')
     } finally {
       setLoading(false)
     }
@@ -79,7 +104,7 @@ export default function Auth() {
         <div style={cardStyle}>
           <div style={{ fontSize: '60px', marginBottom: '20px' }}>✅</div>
           <h2>Đăng ký thành công!</h2>
-          <p style={{ color: 'rgba(255,255,255,0.6)' }}>Thầy giáo sẽ liên hệ với bạn qua Email hoặc Zalo sớm nhất.</p>
+          <p style={{ color: 'rgba(255,255,255,0.6)' }}>Thông tin đã được gửi đến thầy giáo. Bạn sẽ nhận được phản hồi sớm nhất.</p>
         </div>
       </div>
     )
@@ -123,7 +148,7 @@ export default function Auth() {
               <input type="text" required placeholder="Tuổi" value={trialData.age} onChange={(e) => setTrialData({...trialData, age: e.target.value})} style={{...inputStyle, width: '80px'}} />
               <input type="text" required placeholder="Nghề nghiệp/Ngành học" value={trialData.job} onChange={(e) => setTrialData({...trialData, job: e.target.value})} style={inputStyle} />
             </div>
-            <input type="text" required placeholder="Trình độ tiếng Anh hiện tại" value={trialData.level} onChange={(e) => setTrialData({...trialData, level: e.target.value})} style={inputStyle} />
+            <input type="text" required placeholder="Trình độ tiếng Anh hiện tại (VD: Mất gốc)" value={trialData.level} onChange={(e) => setTrialData({...trialData, level: e.target.value})} style={inputStyle} />
             <input type="email" required placeholder="Email liên hệ" value={trialData.email} onChange={(e) => setTrialData({...trialData, email: e.target.value})} style={inputStyle} />
             <textarea placeholder="Mục đích học của bạn..." value={trialData.purpose} onChange={(e) => setTrialData({...trialData, purpose: e.target.value})} style={{...inputStyle, height: '60px', resize: 'none'}} />
             
@@ -133,7 +158,7 @@ export default function Auth() {
 
             <div style={{ display: 'flex', gap: '10px' }}>
               <button type="button" onClick={openLinkedIn} className="hover-btn" style={{...socialButtonStyle, background: '#0077b5'}}>
-                LinkedIn
+                 LinkedIn
               </button>
               <button type="button" onClick={openZalo} className="hover-btn" style={{...socialButtonStyle, background: '#0068ff'}}>
                 Zalo
@@ -155,7 +180,7 @@ export default function Auth() {
   )
 }
 
-// STYLES
+// STYLES (Không đổi)
 const containerStyle = { height: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', fontFamily: "'Inter', sans-serif" }
 const cardStyle = { width: '100%', maxWidth: '450px', padding: '35px', background: 'rgba(255, 255, 255, 0.05)', backdropFilter: 'blur(25px)', borderRadius: '30px', border: '1px solid rgba(255, 255, 255, 0.1)', boxShadow: '0 30px 60px rgba(0,0,0,0.4)', textAlign: 'center', color: '#fff' }
 const formStyle = { display: 'flex', flexDirection: 'column', gap: '12px' }
@@ -163,7 +188,7 @@ const inputStyle = { width: '100%', padding: '14px 18px', borderRadius: '12px', 
 const primaryButtonStyle = { width: '100%', padding: '15px', borderRadius: '12px', background: '#fff', color: '#000', border: 'none', fontWeight: '800', fontSize: '14px', cursor: 'pointer' }
 const socialButtonStyle = { flex: 1, padding: '12px', borderRadius: '12px', color: '#fff', border: 'none', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }
 const googleButtonStyle = { width: '100%', padding: '13px', borderRadius: '12px', background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }
-const dividerStyle = { margin: '20px 0', display: 'flex', alignItems: 'center', gap: '15px' }
+const dividerStyle = { margin: '25px 0', display: 'flex', alignItems: 'center', gap: '15px' }
 const lineStyle = { flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }
 const linkStyle = { color: '#fff', fontWeight: 'bold', cursor: 'pointer', textDecoration: 'underline' }
 const errorStyle = { background: 'rgba(234, 67, 53, 0.1)', color: '#ff8a80', padding: '10px', borderRadius: '10px', fontSize: '12px', marginBottom: '15px', border: '1px solid rgba(234, 67, 53, 0.2)' }
