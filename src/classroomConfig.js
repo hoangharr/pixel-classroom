@@ -1,5 +1,5 @@
 export const classroomConfig = {
   teacherEmails: [
-    'teacher@example.com' // Thêm email giáo viên vào đây
+    'gigabyte.rp@gmail.com' // Thêm email giáo viên vào đây
   ]
 }
