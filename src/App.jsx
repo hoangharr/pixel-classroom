@@ -6,7 +6,7 @@ import AttendanceList from './components/AttendanceList'
 import { useEffect, useState, useRef } from 'react'
 import { auth, rtdb } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { ref, onValue, set, get, remove } from 'firebase/database'
+import { ref, onValue, set, get, remove, push, serverTimestamp, query, limitToLast, orderByChild } from 'firebase/database'
 import { classroomConfig } from './classroomConfig'
 import { mapData } from './mapData'
 
@@ -23,18 +23,23 @@ function App() {
   const [unlockedLessons, setUnlockedLessons] = useState({})
   const [teacherNotification, setTeacherNotification] = useState(null)
   const [mySeatId, setMySeatId] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [chatInput, setChatInput] = useState('')
   const meetWindowRef = useRef(null)
+  const chatEndRef = useRef(null)
 
   const email = user?.email?.toLowerCase() || ''
   const isTeacher = email && classroomConfig.teacherEmails.includes(email)
 
   useEffect(() => {
     if (!user) return
+    
     onValue(ref(rtdb, 'world/config/meetStatus'), (snap) => {
       const active = snap.val() || false
       setMeetActive(active)
       if (!active && meetWindowRef.current) handleLeaveMeet()
     })
+
     onValue(ref(rtdb, 'world/attendance'), (snap) => setAttendanceData(snap.val() || {}))
     onValue(ref(rtdb, 'world/config/unlockedLessons'), (snap) => setUnlockedLessons(snap.val() || {}))
     onValue(ref(rtdb, 'world/seats'), (snap) => {
@@ -42,6 +47,7 @@ function App() {
       const found = Object.keys(data).find(id => data[id].uid === user.uid)
       setMySeatId(found || null)
     })
+
     onValue(ref(rtdb, 'world/events/teacherArrival'), (snap) => {
       const data = snap.val()
       if (data && !isTeacher && Date.now() - data.ts < 5000) {
@@ -49,12 +55,52 @@ function App() {
         setTimeout(() => setTeacherNotification(null), 5000)
       }
     })
+
+    // Logic Chat: Lấy 50 tin nhắn gần nhất
+    const chatQuery = query(ref(rtdb, 'world/chat'), limitToLast(50))
+    onValue(chatQuery, (snap) => {
+      const data = snap.val() || {}
+      const msgList = Object.keys(data).map(id => ({ id, ...data[id] })).sort((a, b) => a.ts - b.ts)
+      setMessages(msgList)
+    })
+
+    // Daily Cleanup (Chỉ giáo viên thực hiện khi vào app)
+    if (isTeacher) {
+      const cleanOldMessages = async () => {
+        const allMsgs = (await get(ref(rtdb, 'world/chat'))).val() || {}
+        const now = Date.now()
+        Object.keys(allMsgs).forEach(id => {
+          if (now - allMsgs[id].ts > 86400000) { // Cũ hơn 24h
+            remove(ref(rtdb, `world/chat/${id}`))
+          }
+        })
+      }
+      cleanOldMessages()
+    }
   }, [user, isTeacher])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u))
     return () => unsub()
   }, [])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const handleSendChat = (e) => {
+    e.preventDefault()
+    if (!chatInput.trim()) return
+    const msgData = {
+      uid: user.uid,
+      email: user.email.split('@')[0],
+      text: chatInput,
+      ts: Date.now(),
+      role: isTeacher ? 'teacher' : 'student'
+    }
+    push(ref(rtdb, 'world/chat'), msgData)
+    setChatInput('')
+  }
 
   const handleZoneChange = (zoneId) => setActiveZone(prev => (prev === zoneId ? prev : zoneId))
 
@@ -114,24 +160,14 @@ function App() {
   const handleLeaveMeet = () => { if (meetWindowRef.current) { meetWindowRef.current.close(); meetWindowRef.current = null }; setIsJoinedMeet(false) }
   const bringMeetToFront = () => { if (meetWindowRef.current && !meetWindowRef.current.closed) meetWindowRef.current.focus() }
 
-  // --- HÀM LOGOUT MỚI: DỌN DẸP TRƯỚC KHI THOÁT ---
   const handleLogout = async () => {
     if (!user) return
     try {
-      // 1. Giải phóng ghế đang ngồi
-      if (mySeatId) {
-        await remove(ref(rtdb, `world/seats/${mySeatId}`))
-      }
-      // 2. Xóa dữ liệu nhân vật
+      if (mySeatId) await remove(ref(rtdb, `world/seats/${mySeatId}`))
       await remove(ref(rtdb, `world/players/${user.uid}`))
-      // 3. Đóng cửa sổ Meet nếu còn mở
       handleLeaveMeet()
-      // 4. Thực hiện đăng xuất chính thức
       await signOut(auth)
-    } catch (err) {
-      console.error("Lỗi khi đăng xuất:", err)
-      await signOut(auth) // Vẫn cho thoát nếu có lỗi
-    }
+    } catch (err) { await signOut(auth) }
   }
 
   const getZoneDisplay = (zoneId) => {
@@ -199,29 +235,45 @@ function App() {
         </div>
       )}
 
+      {/* --- SIDEBAR VỚI CHATBOX --- */}
       <div style={{ position: 'fixed', left: 0, top: 0, height: '100%', width: '365px', transform: showSidebar ? 'translateX(0)' : 'translateX(-320px)', transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)', zIndex: 10000, display: 'flex' }}>
-        <div style={{ width: '320px', height: '100%', backgroundColor: 'rgba(20, 20, 20, 0.95)', boxShadow: '10px 0 50px rgba(0,0,0,0.5)', padding: '30px', display: 'flex', flexDirection: 'column', color: '#fff', backdropFilter: 'blur(15px)', borderRight: '1px solid rgba(255,255,255,0.1)', boxSizing: 'border-box' }}>
-          <h2 style={{ margin: '0 0 30px 0', fontSize: '24px', color: '#fff', display: 'flex', alignItems: 'center', gap: '12px' }}><span>🏫</span> PIXEL CLASS</h2>
-          <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontSize: '11px', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '10px' }}>Tài khoản</div>
-            <div style={{ fontWeight: 'bold', fontSize: '15px', wordBreak: 'break-all' }}>{user.email}</div>
-            <div style={{ marginTop: '10px', display: 'inline-block', padding: '4px 12px', background: isTeacher ? '#ff4d4f' : '#1890ff', color: '#fff', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>{isTeacher ? 'GIÁO VIÊN' : 'HỌC SINH'}</div>
+        <div style={{ width: '320px', height: '100%', backgroundColor: 'rgba(20, 20, 20, 0.95)', boxShadow: '10px 0 50px rgba(0,0,0,0.5)', padding: '20px', display: 'flex', flexDirection: 'column', color: '#fff', backdropFilter: 'blur(15px)', borderRight: '1px solid rgba(255,255,255,0.1)', boxSizing: 'border-box' }}>
+          <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}><span>🏫</span> PIXEL CLASS</h2>
+          
+          {/* Info Section */}
+          <div style={{ marginBottom: '15px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', fontSize: '12px' }}>
+            <div style={{ color: '#aaa', marginBottom: '5px' }}>Tài khoản: <b>{user.email.split('@')[0]}</b></div>
+            <div style={{ color: isTeacher ? '#ff4d4f' : '#1890ff', fontWeight: 'bold' }}>{isTeacher ? 'GIÁO VIÊN' : 'HỌC SINH'}</div>
           </div>
-          <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ fontSize: '11px', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '5px' }}>Vị trí hiện tại</div>
-            <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbc02d' }}>{getZoneDisplay(activeZone)}</div>
+
+          {/* CHATBOX AREA */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ padding: '10px', background: 'rgba(255,255,255,0.05)', fontSize: '11px', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>TRÒ CHUYỆN LỚP HỌC</div>
+            <div style={{ flex: 1, padding: '10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {messages.map((m) => (
+                <div key={m.id} style={{ fontSize: '13px', alignSelf: m.uid === user.uid ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                  <div style={{ fontSize: '10px', color: '#aaa', marginBottom: '2px', textAlign: m.uid === user.uid ? 'right' : 'left' }}>{m.email}</div>
+                  <div style={{ padding: '8px 12px', borderRadius: '12px', background: m.uid === user.uid ? '#1890ff' : 'rgba(255,255,255,0.1)', color: '#fff' }}>{m.text}</div>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            <form onSubmit={handleSendChat} style={{ padding: '10px', display: 'flex', gap: '5px', background: 'rgba(255,255,255,0.03)' }}>
+              <input 
+                type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Aa..."
+                style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '20px', padding: '8px 15px', color: '#fff', outline: 'none', fontSize: '13px' }}
+              />
+              <button type="submit" style={{ background: '#1890ff', border: 'none', borderRadius: '50%', width: '30px', height: '30px', color: '#fff', cursor: 'pointer' }}>↑</button>
+            </form>
           </div>
-          <button 
-            onClick={handleLogout} 
-            style={{ width: '100%', padding: '15px', background: 'transparent', color: '#ff4d4f', border: '2px solid #ff4d4f', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.3s ease' }} 
-            onMouseOver={(e) => { e.target.style.background = '#ff4d4f'; e.target.style.color = '#fff' }} 
-            onMouseOut={(e) => { e.target.style.background = 'transparent'; e.target.style.color = '#ff4d4f' }}
-          >
-            Đăng xuất
-          </button>
+
+          <button onClick={handleLogout} style={{ marginTop: '15px', width: '100%', padding: '12px', background: 'transparent', color: '#ff4d4f', border: '1px solid #ff4d4f', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Đăng xuất</button>
         </div>
+        
+        {/* Handle */}
         <div onClick={() => setShowSidebar(!showSidebar)} style={{ width: '45px', height: '100px', alignSelf: 'center', backgroundColor: 'rgba(20, 20, 20, 0.95)', backdropFilter: 'blur(15px)', borderRadius: '0 25px 25px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '8px 0 20px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderLeft: 'none', marginLeft: '-1px' }}>
-          <div style={{ width: '12px', height: '12px', borderTop: '3px solid #fff', borderRight: '3px solid #fff', transform: showSidebar ? 'rotate(-135deg)' : 'rotate(45deg)', transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)', marginLeft: showSidebar ? '6px' : '-4px' }} />
+          <div style={{ width: '12px', height: '12px', borderTop: '3px solid #fff', borderRight: '3px solid #fff', transform: showSidebar ? 'rotate(-135deg)' : 'rotate(45deg)', transition: 'transform 0.5s', marginLeft: showSidebar ? '6px' : '-4px' }} />
         </div>
       </div>
 

@@ -72,7 +72,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
       await app.init({
         width: window.innerWidth,
         height: window.innerHeight,
-        backgroundColor: mapData.hallway.bgColor,
+        backgroundColor: 0x0288d1, // Màu xanh biển sâu
         resolution: window.devicePixelRatio || 1,
         autoDensity: true,
         resizeTo: window,
@@ -90,43 +90,61 @@ export default function Scene({ role, onZoneChange, onInteract }) {
       world = new PIXI.Container()
       app.stage.addChild(world)
 
-      const ground = new PIXI.Graphics()
-      ground.rect(0, 0, mapData.worldWidth, mapData.worldHeight).fill(mapData.hallway.bgColor)
-      for (let x = 0; x < mapData.worldWidth; x += 40) {
-        ground.moveTo(x, 0).lineTo(x, mapData.worldHeight).stroke({ color: 0xd0d0d0, width: 1 })
+      // 1. VẼ ĐẢO (ISLAND)
+      const island = mapData.island
+      const islandBase = new PIXI.Graphics()
+      // Nền đảo
+      islandBase.rect(island.x, island.y, island.w, island.h).fill(island.bgColor)
+      // Tường bao quanh đảo (Collision)
+      const wallT = 30
+      islandBase.rect(island.x, island.y, island.w, wallT).fill(island.wallColor) // Trên
+      islandBase.rect(island.x, island.y + island.h - wallT, island.w, wallT).fill(island.wallColor) // Dưới
+      islandBase.rect(island.x, island.y, wallT, island.h).fill(island.wallColor) // Trái
+      islandBase.rect(island.x + island.w - wallT, island.y, wallT, island.h).fill(island.wallColor) // Phải
+      
+      world.addChild(islandBase)
+
+      // Đưa tường bao đảo vào danh sách va chạm
+      collisionRects.push({ x: island.x, y: island.y, w: island.w, h: wallT })
+      collisionRects.push({ x: island.x, y: island.y + island.h - wallT, w: island.w, h: wallT })
+      collisionRects.push({ x: island.x, y: island.y, w: wallT, h: island.h })
+      collisionRects.push({ x: island.x + island.w - wallT, y: island.y, w: wallT, h: island.h })
+
+      // 2. VẼ LƯỚI TỌA ĐỘ (GRID) - Bao phủ toàn bộ đất liền
+      const grid = new PIXI.Graphics()
+      for (let x = island.x; x <= island.x + island.w; x += 50) {
+        grid.moveTo(x, island.y).lineTo(x, island.y + island.h).stroke({ color: 0xcccccc, width: 1, alpha: 0.5 })
       }
-      for (let y = 0; y < mapData.worldHeight; y += 40) {
-        ground.moveTo(0, y).lineTo(mapData.worldWidth, y).stroke({ color: 0xd0d0d0, width: 1 })
+      for (let y = island.y; y <= island.y + island.h; y += 50) {
+        grid.moveTo(island.x, y).lineTo(island.x + island.w, y).stroke({ color: 0xcccccc, width: 1, alpha: 0.5 })
       }
-      world.addChild(ground)
+      world.addChild(grid)
 
       const seatGraphicsMap = new Map()
       const teacherDeskGraphicRef = { current: null }
 
+      // 3. VẼ CÁC PHÒNG HỌC
       mapData.rooms.forEach(room => {
         const roomContainer = new PIXI.Container()
         roomContainer.x = room.x; roomContainer.y = room.y
         world.addChild(roomContainer)
 
-        const bg = new PIXI.Graphics().rect(0, 0, room.w, room.h).fill(room.bgColor).rect(0, 0, room.w, room.h).stroke({ color: 0xd7ccc8, width: 2 })
+        const bg = new PIXI.Graphics().rect(0, 0, room.w, room.h).fill(room.bgColor).rect(0, 0, room.w, room.h).stroke({ color: 0x5d4037, width: 3 })
         roomContainer.addChild(bg)
 
-        const wallT = 20, wallColor = 0x4e342e, wallTopColor = 0x8d6e63
-        const addWall = (rx, ry, rw, rh) => {
+        const rWallT = 15, rWallColor = 0x4e342e, rWallTopColor = 0x8d6e63
+        const addRoomWall = (rx, ry, rw, rh) => {
           if (rw <= 0 || rh <= 0) return
-          const g = new PIXI.Graphics().rect(rx, ry, rw, rh).fill(wallColor).rect(rx, ry, rw, 4).fill(wallTopColor)
+          const g = new PIXI.Graphics().rect(rx, ry, rw, rh).fill(rWallColor).rect(rx, ry, rw, 4).fill(rWallTopColor)
           roomContainer.addChild(g)
           collisionRects.push({ x: room.x + rx, y: room.y + ry, w: rw, h: rh })
         }
 
         const door = room.door
-        if (door.y <= room.y + 5) { addWall(0, 0, door.x - room.x, wallT); addWall(door.x - room.x + door.w, 0, room.w - (door.x - room.x + door.w), wallT) } else { addWall(0, 0, room.w, wallT) }
-        if ((door.y + door.h) >= (room.y + room.h - 5)) { addWall(0, room.h - wallT, door.x - room.x, wallT); addWall(door.x - room.x + door.w, room.h - wallT, room.w - (door.x - room.x + door.w), wallT) } else { addWall(0, room.h - wallT, room.w, wallT) }
-        if (door.x <= room.x + 5) { addWall(0, 0, wallT, door.y - room.y); addWall(0, door.y - room.y + door.h, wallT, room.h - (door.y - room.y + door.h)) } else { addWall(0, 0, wallT, room.h) }
-        if ((door.x + door.w) >= (room.x + room.w - 5)) { addWall(room.w - wallT, 0, wallT, door.y - room.y); addWall(room.w - wallT, door.y - room.y + door.h, wallT, room.h - (door.y - room.y + door.h)) } else { addWall(room.w - wallT, 0, wallT, room.h) }
-
-        const doorGraphic = new PIXI.Graphics().rect(door.x - room.x, door.y - room.y, door.w, door.h).fill({ color: 0x5d4037, alpha: 0.8 })
-        roomContainer.addChild(doorGraphic)
+        if (door.y <= room.y + 5) { addRoomWall(0, 0, door.x - room.x, rWallT); addRoomWall(door.x - room.x + door.w, 0, room.w - (door.x - room.x + door.w), rWallT) } else { addRoomWall(0, 0, room.w, rWallT) }
+        if ((door.y + door.h) >= (room.y + room.h - 5)) { addRoomWall(0, room.h - rWallT, door.x - room.x, rWallT); addRoomWall(door.x - room.x + door.w, room.h - rWallT, room.w - (door.x - room.x + door.w), rWallT) } else { addRoomWall(0, room.h - rWallT, room.w, rWallT) }
+        if (door.x <= room.x + 5) { addRoomWall(0, 0, rWallT, door.y - room.y); addRoomWall(0, door.y - room.y + door.h, rWallT, room.h - (door.y - room.y + door.h)) } else { addRoomWall(0, 0, rWallT, room.h) }
+        if ((door.x + door.w) >= (room.x + room.w - 5)) { addRoomWall(room.w - rWallT, 0, rWallT, door.y - room.y); addRoomWall(room.w - rWallT, door.y - room.y + door.h, rWallT, room.h - (door.y - room.y + door.h)) } else { addRoomWall(room.w - rWallT, 0, rWallT, room.h) }
 
         room.objects.forEach(obj => {
           const g = new PIXI.Graphics()
@@ -153,7 +171,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
         })
       })
 
-      // Sync Seat & Teacher Arrival Status
+      // Sync Seat & Teacher Arrival
       onValue(dbRef(rtdb, 'world/seats'), (snap) => {
         const data = snap.val() || {}
         seatGraphicsMap.forEach((g, id) => {
@@ -161,8 +179,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
           const obj = mapData.rooms.flatMap(r => r.objects).find(o => o.id === id)
           const room = mapData.rooms.find(r => r.objects.some(o => o.id === id))
           if (data[id]) {
-            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x1e88e5)
-            g.circle(obj.x - room.x + obj.w/2, obj.y - room.y + obj.h/2, 10).fill(0xffdbac)
+            g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x1e88e5).circle(obj.x - room.x + obj.w/2, obj.y - room.y + obj.h/2, 10).fill(0xffdbac)
           } else {
             g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(obj.color).rect(obj.x - room.x, obj.y - room.y - 8, obj.w, 8).fill(0x5d4037)
           }
@@ -175,7 +192,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
           const g = teacherDeskGraphicRef.current; g.clear()
           const obj = mapData.rooms.flatMap(r => r.objects).find(o => o.id === 'desk_teacher')
           const room = mapData.rooms.find(r => r.id === 'classroom_1')
-          const color = (data && Date.now() - data.ts < 3600000) ? 0x4caf50 : 0x8d6e63 // Đổi sang xanh nếu thầy đã vào lớp (trong 1h qua)
+          const color = (data && Date.now() - data.ts < 3600000) ? 0x4caf50 : 0x8d6e63
           g.rect(obj.x - room.x, obj.y - room.y, obj.w, obj.h).fill(0x3e2723).rect(obj.x - room.x, obj.y - room.y - 4, obj.w, obj.h).fill(color)
         }
       })
@@ -218,7 +235,7 @@ export default function Scene({ role, onZoneChange, onInteract }) {
           me.body.y = Math.sin(Date.now() * 0.01) * 3
           if (dx !== 0) me.body.scale.x = dx < 0 ? -1 : 1
           const currentRoom = mapData.rooms.find(r => playerRef.current.x >= r.x && playerRef.current.x <= r.x + r.w && playerRef.current.y >= r.y && playerRef.current.y <= r.y + r.h)
-          const currentObj = mapData.rooms.flatMap(r => r.objects).find(o => playerRef.current.x >= o.x - 35 && playerRef.current.x <= o.x + o.w + 35 && playerRef.current.y >= o.y - 35 && playerRef.current.y <= o.y + o.h + 35)
+          const currentObj = mapData.rooms.flatMap(r => r.objects).find(o => playerRef.current.x >= o.x - 35 && playerRef.current.x <= o.x + o.w + 35 && playerRef.current.y >= o.y - 35 && playerRef.current.y <= o.h + 35)
           const zoneId = currentObj ? currentObj.id : (currentRoom ? currentRoom.id : null)
           if (zoneId !== lastZoneRef.current) { lastZoneRef.current = zoneId; if (onZoneChangeRef.current) onZoneChangeRef.current(zoneId) }
         } else { if (me.body) me.body.y = 0 }

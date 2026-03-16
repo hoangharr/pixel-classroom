@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { GRAMMAR_DATA } from '../grammarData'
 import { rtdb } from '../firebase'
 import { ref, set } from 'firebase/database'
